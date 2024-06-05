@@ -1,0 +1,5 @@
+chromedriver_autoinstaller
+requests==2.27.1
+selenium==4.2.0
+sendgrid==6.9.7
+webdriver-manager==3.7.0
