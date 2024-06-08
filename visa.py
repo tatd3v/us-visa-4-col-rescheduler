@@ -220,7 +220,6 @@ def browser_reschedule(date):
         "appointments[consulate_appointment][date]": date,
         "appointments[consulate_appointment][time]": time,
     }
-    print(data)
     r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
     if r.text.find("Successfully Scheduled") != -1:
         title = "SUCCESS"
@@ -260,10 +259,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[
-            logging.FileHandler("log.txt"),
-            # logging.StreamHandler()
-        ],
+        handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()],
     )
 
     # Init Selenium driver
