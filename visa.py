@@ -152,7 +152,6 @@ def auto_action(label, find_by, el_type, action, value, sleep_time=0):
 
 
 def browser_login():
-    print("entered browser login")
     # Bypass reCAPTCHA
     driver.get(SIGN_IN_LINK)
     time.sleep(STEP_TIME)
@@ -178,24 +177,40 @@ def browser_login():
 
 
 def browser_get_date():
-    # Requesting to get the whole available dates
-    session = driver.get_cookie("_yatri_session")["value"]
-    script = JS_SCRIPT % (DATE_URL, session)
-    content = driver.execute_script(script)
-    return json.loads(content)
+    try:
+        # Requesting to get the whole available dates
+        session = driver.get_cookie("_yatri_session")["value"]
+        script = JS_SCRIPT % (DATE_URL, session)
+        content = driver.execute_script(script)
+        logging.info(f"Response content: {content}")
+        return json.loads(content)
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decoding error in browser_get_date: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred in browser_get_date: {e}")
+        return None
 
 
 def browser_get_time(date):
-    time_url = TIME_URL % date
-    session = driver.get_cookie("_yatri_session")["value"]
-    script = JS_SCRIPT % (time_url, session)
-    logging.info("browser_get_time")
-    logging.info(script)
-    content = driver.execute_script(script)
-    data = json.loads(content)
-    time = data.get("available_times")[-1]
-    logging.info(f"Got time successfully! {date} {time}")
-    return time
+    try:
+        time_url = TIME_URL % date
+        session = driver.get_cookie("_yatri_session")["value"]
+        script = JS_SCRIPT % (time_url, session)
+        logging.info("browser_get_time")
+        logging.info(script)
+        content = driver.execute_script(script)
+        logging.info(f"Response content: {content}")
+        data = json.loads(content)
+        time = data.get("available_times")[-1]
+        logging.info(f"Got time successfully! {date} {time}")
+        return time
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decoding error in browser_get_time: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"An unexpected error occurred in browser_get_time: {e}")
+        return None
 
 
 def browser_reschedule(date):
@@ -286,13 +301,13 @@ if __name__ == "__main__":
         logging.info(msg)
 
         try:
-            print("should login? ", should_login)
             if should_login:
                 time_session_started = time.time()
                 browser_login()
                 should_login = False
 
             dates = browser_get_date()
+            print(dates)
             if not dates:
                 # Ban Situation
                 msg = f"List is empty, Probably banned!\n\tSleep for {BAN_COOLDOWN_TIME} hours!\n"
@@ -309,8 +324,6 @@ if __name__ == "__main__":
             logging.info(f"Found earlist available days: {dates[:10]}")
             date = get_better_date(dates)
             logging.info(f"get_available_date(dates) = {date}")
-
-            print("Date ", date)
 
             if date:
                 msg = "Found a better date. Attempting to reschedule automatically..."
