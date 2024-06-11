@@ -297,6 +297,8 @@ if __name__ == "__main__":
     should_login = True
     count_request = 0
     time_session_started = 0
+    max_login_retries = 3
+
     while True:
         count_request += 1
         msg = "-" * 60 + f"\nRequest {count_request}\n"
@@ -304,70 +306,91 @@ if __name__ == "__main__":
         logging.info(msg)
 
         try:
+            print("should login? ", should_login)
             if should_login:
                 time_session_started = time.time()
                 browser_login()
                 should_login = False
+                login_retry_count = 0
 
             dates = browser_get_date()
-            print(dates)
-            if not dates:
-                # Ban Situation
-                msg = f"List is empty, Probably banned!\n\tSleep for {BAN_COOLDOWN_TIME} hours!\n"
+            print("GOT dates")
+
+            if dates is not None and not dates:
+                login_retry_count += 1
+                if login_retry_count <= max_login_retries:
+                    msg = f"List is empty, retrying login attempt {login_retry_count}/{max_login_retries}\n"
+                    print(msg)
+                    logging.info(msg)
+                    send_notification("LOGIN RETRY", msg)
+
+                    # Retry login
+                    driver.get(SIGN_OUT_LINK)
+                    should_login = True
+                    time.sleep(30)  # Optional: add a short delay before retrying
+                    continue
+                else:
+                    # Ban Situation
+                    msg = f"List is empty, probably banned after {max_login_retries} retries!\n\tSleep for {BAN_COOLDOWN_TIME} hours!\n"
+                    print(msg)
+                    logging.info(msg)
+                    send_notification("BAN", msg)
+
+                    driver.get(SIGN_OUT_LINK)
+
+                    time.sleep(BAN_COOLDOWN_TIME * SECONDS_IN_HOUR)
+
+                    should_login = True
+                    login_retry_count = 0  # Reset retry count after cooldown
+                    continue
+
+            if dates:
+                logging.info(f"Found earliest available days: {dates[:10]}")
+                date = get_better_date(dates)
+                logging.info(f"get_available_date(dates) = {date}")
+
+                if date:
+                    msg = (
+                        "Found a better date. Attempting to reschedule automatically..."
+                    )
+                    print(msg)
+                    logging.info(msg)
+                    send_notification("FOUND", msg)
+
+                    final_notification_title, msg = browser_reschedule(date)
+                    print("RESCHEDULE DONE")
+                    break
+
+                # No better date found, will retry
+                msg = "No better date. Retrying..."
                 print(msg)
                 logging.info(msg)
-                send_notification("BAN", msg)
 
-                driver.get(SIGN_OUT_LINK)
-                should_login = True
-
-                time.sleep(BAN_COOLDOWN_TIME * SECONDS_IN_HOUR)
-                continue
-
-            logging.info(f"Found earlist available days: {dates[:10]}")
-            date = get_better_date(dates)
-            logging.info(f"get_available_date(dates) = {date}")
-
-            if date:
-                msg = "Found a better date. Attempting to reschedule automatically..."
-                print(msg)
-                logging.info(msg)
-                send_notification("FOUND", msg)
-
-                final_notification_title, msg = browser_reschedule(date)
-                print("RESCHEDULE DONE")
-                break
-
-            # No better date found, will retry
-            msg = "No better date. Retrying..."
-            print(msg)
-            logging.info(msg)
-
-            session_up_time = time.time() - time_session_started
-            logging.info(
-                f"session_up_time: {session_up_time/SECONDS_IN_MINUTE:.2f} minutes"
-            )
-
-            if session_up_time > WORK_LIMIT_TIME * SECONDS_IN_HOUR:
-                # Session too long, wait a few hours and start a new session
-                msg = f"Taking a break after {WORK_LIMIT_TIME} hours"
-                print(msg)
-                logging.info(msg)
-                send_notification("REST", msg)
-
-                driver.get(SIGN_OUT_LINK)
-                should_login = True
-
-                time.sleep(WORK_COOLDOWN_TIME * SECONDS_IN_HOUR)
-            else:
-                sleep_duration = sleep_duration = random.randint(
-                    int(RETRY_TIME_L_BOUND), int(RETRY_TIME_U_BOUND)
+                session_up_time = time.time() - time_session_started
+                logging.info(
+                    f"session_up_time: {session_up_time/SECONDS_IN_MINUTE:.2f} minutes"
                 )
-                msg = f"Wait {sleep_duration/SECONDS_IN_MINUTE:.2f} minutes before next check"
-                print(msg)
-                logging.info(msg)
 
-                time.sleep(sleep_duration)
+                if session_up_time > WORK_LIMIT_TIME * SECONDS_IN_HOUR:
+                    # Session too long, wait a few hours and start a new session
+                    msg = f"Taking a break after {WORK_LIMIT_TIME} hours"
+                    print(msg)
+                    logging.info(msg)
+                    send_notification("REST", msg)
+
+                    driver.get(SIGN_OUT_LINK)
+                    should_login = True
+
+                    time.sleep(WORK_COOLDOWN_TIME * SECONDS_IN_HOUR)
+                else:
+                    sleep_duration = random.randint(
+                        int(RETRY_TIME_L_BOUND), int(RETRY_TIME_U_BOUND)
+                    )
+                    msg = f"Wait {sleep_duration/SECONDS_IN_MINUTE:.2f} minutes before next check"
+                    print(msg)
+                    logging.info(msg)
+
+                    time.sleep(sleep_duration)
 
         except Exception as e:
             final_notification_title = "ERROR"
