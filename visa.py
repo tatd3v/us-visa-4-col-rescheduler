@@ -292,7 +292,6 @@ if __name__ == "__main__":
                 should_login = False
 
             dates = browser_get_date()
-            print(dates)
             if not dates:
                 # Ban Situation
                 msg = f"List is empty, Probably banned!\n\tSleep for {BAN_COOLDOWN_TIME} hours!\n"
