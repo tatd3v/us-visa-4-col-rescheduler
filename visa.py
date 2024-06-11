@@ -152,6 +152,7 @@ def auto_action(label, find_by, el_type, action, value, sleep_time=0):
 
 
 def browser_login():
+    print("entered browser login")
     # Bypass reCAPTCHA
     driver.get(SIGN_IN_LINK)
     time.sleep(STEP_TIME)
@@ -308,6 +309,8 @@ if __name__ == "__main__":
             logging.info(f"Found earlist available days: {dates[:10]}")
             date = get_better_date(dates)
             logging.info(f"get_available_date(dates) = {date}")
+
+            print("Date ", date)
 
             if date:
                 msg = "Found a better date. Attempting to reschedule automatically..."
