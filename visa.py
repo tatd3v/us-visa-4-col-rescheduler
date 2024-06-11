@@ -285,6 +285,7 @@ if __name__ == "__main__":
         logging.info(msg)
 
         try:
+            print("should login? ", should_login)
             if should_login:
                 time_session_started = time.time()
                 browser_login()
@@ -308,6 +309,7 @@ if __name__ == "__main__":
             logging.info(f"Found earlist available days: {dates[:10]}")
             date = get_better_date(dates)
             logging.info(f"get_available_date(dates) = {date}")
+
             if date:
                 msg = "Found a better date. Attempting to reschedule automatically..."
                 print(msg)
