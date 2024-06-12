@@ -179,11 +179,8 @@ def browser_login():
 def browser_get_date():
     try:
         # Requesting to get the whole available dates
-        print("entered browser get dat with driver: ", driver)
         session = driver.get_cookie("_yatri_session")["value"]
-        print("Got session", session)
         script = JS_SCRIPT % (DATE_URL, session)
-        print("Got script", script)
         content = driver.execute_script(script)
         logging.info(f"Response content: {content}")
         return json.loads(content)
@@ -302,7 +299,7 @@ if __name__ == "__main__":
     while True:
         count_request += 1
         msg = "-" * 60 + f"\nRequest {count_request}\n"
-        print(msg)
+        # print(msg)
         logging.info(msg)
 
         try:
@@ -317,6 +314,7 @@ if __name__ == "__main__":
             print("GOT dates")
 
             if dates is not None and not dates:
+                print("ENTERED TO FIRST IF")
                 login_retry_count += 1
                 if login_retry_count <= max_login_retries:
                     msg = f"List is empty, retrying login attempt {login_retry_count}/{max_login_retries}\n"
