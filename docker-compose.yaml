@@ -1,15 +1,10 @@
+version: "3"
 services:
-  selenium:
-    image: selenium/standalone-chrome
+  selenium-chrome:
+    image: selenium/standalone-chrome:4.21.0
+    container_name: selenium-chrome
+    environment:
+      - SE_SESSION_REQUEST_TIMEOUT=604800
+      - SE_SESSION_MAP_TIMEOUT=604800
     ports:
       - "4444:4444"
-    restart: always
-    shm_size: 2g
-
-  app:
-    build: .
-    command: sh -c 'python visa.py'
-    depends_on:
-      - selenium
-    volumes:
-      - .:/app
