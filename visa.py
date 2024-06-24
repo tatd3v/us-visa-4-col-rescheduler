@@ -127,6 +127,7 @@ def send_notification(title, msg):
 
 def auto_action(label, find_by, el_type, action, value, sleep_time=0):
     # Find Element By
+    print(find_by)
     match find_by.lower():
         case "id":
             item = driver.find_element(By.ID, el_type)
