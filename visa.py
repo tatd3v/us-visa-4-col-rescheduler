@@ -7,11 +7,14 @@ import logging
 from datetime import datetime
 
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    NoSuchElementException,
+    WebDriverException,
+)
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
 
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
@@ -90,6 +93,13 @@ JS_SCRIPT = (
     "return req.responseText;"
 )
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()],
+)
+
 
 def send_notification(title, msg):
     logging.info(f"Sending notification:\n{title}\n---\n{msg}\n---\n")
@@ -126,55 +136,71 @@ def send_notification(title, msg):
 
 
 def auto_action(label, find_by, el_type, action, value, sleep_time=0):
-    # Find Element By
-    print(find_by)
-    match find_by.lower():
-        case "id":
-            item = driver.find_element(By.ID, el_type)
-        case "name":
-            item = driver.find_element(By.NAME, el_type)
-        case "class":
-            item = driver.find_element(By.CLASS_NAME, el_type)
-        case "xpath":
-            item = driver.find_element(By.XPATH, el_type)
-        case _:
-            return 0
-    # Do Action:
-    match action.lower():
-        case "send":
-            item.send_keys(value)
-        case "click":
-            item.click()
-        case _:
-            return 0
-    logging.info(f"\t{label}:\t\tCheck!")
-    if sleep_time:
-        time.sleep(sleep_time)
+    try:
+        # Find Element By
+        print(find_by)
+        match find_by.lower():
+            case "id":
+                item = driver.find_element(By.ID, el_type)
+            case "name":
+                item = driver.find_element(By.NAME, el_type)
+            case "class":
+                item = driver.find_element(By.CLASS_NAME, el_type)
+            case "xpath":
+                item = driver.find_element(By.XPATH, el_type)
+            case _:
+                return 0
+        # Do Action:
+        match action.lower():
+            case "send":
+                item.send_keys(value)
+            case "click":
+                item.click()
+            case _:
+                return 0
+        logging.info(f"\t{label}:\t\tCheck!")
+        if sleep_time:
+            time.sleep(sleep_time)
+    except NoSuchElementException as e:
+        logging.error(f"Element not found: {e}")
+    except ElementClickInterceptedException as e:
+        logging.error(f"Element click intercepted: {e}")
+        # Handle element click interception, for example:
+        time.sleep(1)
+        # Retry clicking the element
+        item.click()
+    except Exception as e:
+        logging.error(f"Unexpected error during action: {e}")
 
 
 def browser_login():
-    # Bypass reCAPTCHA
-    driver.get(SIGN_IN_LINK)
-    time.sleep(STEP_TIME)
-    Wait(driver, 60).until(EC.presence_of_element_located((By.NAME, "commit")))
-    auto_action(
-        "Click bounce",
-        "xpath",
-        '//a[@class="down-arrow bounce"]',
-        "click",
-        "",
-        STEP_TIME,
-    )
-    auto_action("Email", "id", "user_email", "send", USERNAME, STEP_TIME)
-    auto_action("Password", "id", "user_password", "send", PASSWORD, STEP_TIME)
-    auto_action("Privacy", "class", "icheckbox", "click", "", STEP_TIME)
-    auto_action("Enter Panel", "name", "commit", "click", "", STEP_TIME)
-    Wait(driver, 60).until(
-        EC.presence_of_element_located(
-            (By.XPATH, "//a[contains(text(), '" + REGEX_CONTINUE + "')]")
+    try:
+        # Bypass reCAPTCHA
+        driver.get(SIGN_IN_LINK)
+        time.sleep(STEP_TIME)
+        Wait(driver, 60).until(EC.presence_of_element_located((By.NAME, "commit")))
+        auto_action(
+            "Click bounce",
+            "xpath",
+            '//a[@class="down-arrow bounce"]',
+            "click",
+            "",
+            STEP_TIME,
         )
-    )
-    logging.info("login successful!\n")
+        auto_action("Email", "id", "user_email", "send", USERNAME, STEP_TIME)
+        auto_action("Password", "id", "user_password", "send", PASSWORD, STEP_TIME)
+        auto_action("Privacy", "class", "icheckbox", "click", "", STEP_TIME)
+        auto_action("Enter Panel", "name", "commit", "click", "", STEP_TIME)
+        Wait(driver, 60).until(
+            EC.presence_of_element_located(
+                (By.XPATH, "//a[contains(text(), '" + REGEX_CONTINUE + "')]")
+            )
+        )
+        logging.info("login successful!\n")
+
+    except Exception as e:
+        logging.error(f"Error during login: {e}")
+        raise
 
 
 def browser_get_date():
@@ -185,6 +211,7 @@ def browser_get_date():
         content = driver.execute_script(script)
         logging.info(f"Response content: {content}")
         return json.loads(content)
+
     except json.JSONDecodeError as e:
         logging.error(f"JSON decoding error in browser_get_date: {e}")
         return None
@@ -202,10 +229,13 @@ def browser_get_time(date):
         logging.info(script)
         content = driver.execute_script(script)
         logging.info(f"Response content: {content}")
+        if "You need to sign in or sign up before continuing." in content:
+            raise Exception("Session expired")
         data = json.loads(content)
         time = data.get("available_times")[-1]
         logging.info(f"Got time successfully! {date} {time}")
         return time
+
     except json.JSONDecodeError as e:
         logging.error(f"JSON decoding error in browser_get_time: {e}")
         return None
@@ -215,44 +245,41 @@ def browser_get_time(date):
 
 
 def browser_reschedule(date):
-    time = browser_get_time(date)
-    driver.get(APPOINTMENT_URL)
-    headers = {
-        "User-Agent": driver.execute_script("return navigator.userAgent;"),
-        "Referer": APPOINTMENT_URL,
-        "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"],
-    }
-    data = {
-        # "utf8": driver.find_element(by=By.NAME, value="utf8").get_attribute("value"),
-        "authenticity_token": driver.find_element(
-            by=By.NAME, value="authenticity_token"
-        ).get_attribute("value"),
-        "confirmed_limit_message": driver.find_element(
-            by=By.NAME, value="confirmed_limit_message"
-        ).get_attribute("value"),
-        "use_consulate_appointment_capacity": driver.find_element(
-            by=By.NAME, value="use_consulate_appointment_capacity"
-        ).get_attribute("value"),
-        "appointments[consulate_appointment][facility_id]": FACILITY_ID,
-        "appointments[consulate_appointment][date]": date,
-        "appointments[consulate_appointment][time]": time,
-    }
-    r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
-    if r.text.find("Successfully Scheduled") != -1:
-        title = "SUCCESS"
-        msg = f"Rescheduled Successfully! {date} {time}"
-    else:
-        title = "FAIL"
-        msg = f"Reschedule Failed!!! {date} {time}"
-    return [title, msg]
+    try:
+        time = browser_get_time(date)
+        driver.get(APPOINTMENT_URL)
+        headers = {
+            "User-Agent": driver.execute_script("return navigator.userAgent;"),
+            "Referer": APPOINTMENT_URL,
+            "Cookie": "_yatri_session=" + driver.get_cookie("_yatri_session")["value"],
+        }
+        data = {
+            # "utf8": driver.find_element(by=By.NAME, value="utf8").get_attribute("value"),
+            "authenticity_token": driver.find_element(
+                by=By.NAME, value="authenticity_token"
+            ).get_attribute("value"),
+            "confirmed_limit_message": driver.find_element(
+                by=By.NAME, value="confirmed_limit_message"
+            ).get_attribute("value"),
+            "use_consulate_appointment_capacity": driver.find_element(
+                by=By.NAME, value="use_consulate_appointment_capacity"
+            ).get_attribute("value"),
+            "appointments[consulate_appointment][facility_id]": FACILITY_ID,
+            "appointments[consulate_appointment][date]": date,
+            "appointments[consulate_appointment][time]": time,
+        }
+        r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
+        if r.text.find("Successfully Scheduled") != -1:
+            title = "SUCCESS"
+            msg = f"Rescheduled Successfully! {date} {time}"
+        else:
+            title = "FAIL"
+            msg = f"Reschedule Failed!!! {date} {time}"
+        return [title, msg]
 
-
-def browser_is_logged_in():
-    content = driver.page_source
-    print(content)
-    if content.find("error") != -1:
-        return False
-    return True
+    except Exception as e:
+        logging.error(f"An unexpected error occurred in browser_reschedule: {e}")
+        return "Error", "Failed to reschedule."
 
 
 def get_better_date(dates):
@@ -272,14 +299,9 @@ def get_better_date(dates):
 
 
 if __name__ == "__main__":
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()],
-    )
-
     # Init Selenium driver
+    global driver
+
     if LOCAL_USE:
         chromedriver_autoinstaller.install()
         driver = webdriver.Chrome()
@@ -295,12 +317,11 @@ if __name__ == "__main__":
     should_login = True
     count_request = 0
     time_session_started = 0
-    max_login_retries = 3
+    max_login_retries = 5
 
     while True:
         count_request += 1
         msg = "-" * 60 + f"\nRequest {count_request}\n"
-        # print(msg)
         logging.info(msg)
 
         try:
@@ -312,21 +333,19 @@ if __name__ == "__main__":
                 login_retry_count = 0
 
             dates = browser_get_date()
-            print("GOT dates")
 
             if dates is not None and not dates:
                 print("ENTERED TO FIRST IF")
                 login_retry_count += 1
                 if login_retry_count <= max_login_retries:
                     msg = f"List is empty, retrying login attempt {login_retry_count}/{max_login_retries}\n"
-                    print(msg)
                     logging.info(msg)
                     send_notification("LOGIN RETRY", msg)
 
                     # Retry login
                     driver.get(SIGN_OUT_LINK)
                     should_login = True
-                    time.sleep(30)  # Optional: add a short delay before retrying
+                    time.sleep(60)
                     continue
                 else:
                     # Ban Situation
@@ -340,7 +359,7 @@ if __name__ == "__main__":
                     time.sleep(BAN_COOLDOWN_TIME * SECONDS_IN_HOUR)
 
                     should_login = True
-                    login_retry_count = 0  # Reset retry count after cooldown
+                    login_retry_count = 0
                     continue
 
             if dates:
@@ -362,7 +381,6 @@ if __name__ == "__main__":
 
                 # No better date found, will retry
                 msg = "No better date. Retrying..."
-                print(msg)
                 logging.info(msg)
 
                 session_up_time = time.time() - time_session_started
@@ -371,25 +389,49 @@ if __name__ == "__main__":
                 )
 
                 if session_up_time > WORK_LIMIT_TIME * SECONDS_IN_HOUR:
-                    # Session too long, wait a few hours and start a new session
                     msg = f"Taking a break after {WORK_LIMIT_TIME} hours"
-                    print(msg)
                     logging.info(msg)
                     send_notification("REST", msg)
 
-                    driver.get(SIGN_OUT_LINK)
-                    should_login = True
+                    driver.quit()
+                    if LOCAL_USE:
+                        chromedriver_autoinstaller.install()
+                        driver = webdriver.Chrome()
+                    else:
+                        driver = webdriver.Remote(
+                            command_executor=HUB_ADDRESS,
+                            options=webdriver.ChromeOptions(),
+                        )
 
+                    should_login = True
                     time.sleep(WORK_COOLDOWN_TIME * SECONDS_IN_HOUR)
                 else:
                     sleep_duration = random.randint(
                         int(RETRY_TIME_L_BOUND), int(RETRY_TIME_U_BOUND)
                     )
                     msg = f"Wait {sleep_duration/SECONDS_IN_MINUTE:.2f} minutes before next check"
-                    print(msg)
                     logging.info(msg)
-
                     time.sleep(sleep_duration)
+
+        except WebDriverException as e:
+            msg = str(e)
+            if "Unable to find session with ID" in msg or "Session not found" in msg:
+                logging.error("Session not found. Reinitializing WebDriver.")
+                if driver:
+                    driver.quit()
+                if LOCAL_USE:
+                    chromedriver_autoinstaller.install()
+                    driver = webdriver.Chrome()
+                else:
+                    driver = webdriver.Remote(
+                        command_executor=HUB_ADDRESS, options=webdriver.ChromeOptions()
+                    )
+                should_login = True
+            else:
+                final_notification_title = "ERROR"
+                msg = "Exception Occurred! Program will exit.\n"
+                logging.error(e)
+                break
 
         except Exception as e:
             final_notification_title = "ERROR"
